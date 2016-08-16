@@ -237,6 +237,15 @@ class StubGenerator(mypy.traverser.TraverserVisitor):
             for name in sorted(undefined_names):
                 self.add('#   %s\n' % name)
 
+    def annotate(self, args, i, types):
+        arg_ = args[i]
+        var = arg_.variable
+        name = var.name()
+        if types and name != 'self':
+            annotation = str(types.arg_types[i])
+            name += ": %s" % annotation.replace('?', '')
+        return name
+
     def visit_func_def(self, o: FuncDef) -> None:
         if self.is_private_name(o.name()):
             return
@@ -256,9 +265,8 @@ class StubGenerator(mypy.traverser.TraverserVisitor):
         self.record_name(o.name())
         args = []  # type: List[str]
         for i, arg_ in enumerate(o.arguments):
-            var = arg_.variable
             kind = arg_.kind
-            name = var.name()
+            name = self.annotate(o.arguments, i, o.type)
             init_stmt = arg_.initialization_statement
             if init_stmt:
                 if kind == ARG_NAMED and '*' not in args:
@@ -266,7 +274,7 @@ class StubGenerator(mypy.traverser.TraverserVisitor):
                 typename = self.get_str_type_of_node(init_stmt.rvalue, True)
                 arg = '{}: {} = ...'.format(name, typename)
             elif kind == ARG_STAR:
-                arg = '*%s' % name
+                arg = '*%s' % self.annotate(o.arguments, i, o.type)
             elif kind == ARG_STAR2:
                 arg = '**%s' % name
             else:
@@ -280,7 +288,10 @@ class StubGenerator(mypy.traverser.TraverserVisitor):
             retfield = ' -> ' + retname
 
         self.add(', '.join(args))
-        self.add("){}: ...\n".format(retfield))
+        self.add(")")
+        if o.type:
+            self.add(" -> %s" % str(o.type.ret_type).replace('?', ''))
+        self.add(": ...\n")
         self._state = FUNC
 
     def visit_decorator(self, o: Decorator) -> None:
